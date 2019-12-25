@@ -1,2 +1,2 @@
 ## dicodingWebApp
-Submission 1 - Azure Web App &amp; SQL Databaseon Class "Menjadi Azure Cloud Developer"
+Submission 1 - Azure Web App &amp; SQL Database on "Menjadi Azure Cloud Developer" Class.
