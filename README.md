@@ -1,2 +1,2 @@
-## dicodingWebApp
-Submission 1 - Azure Web App &amp; SQL Database on "Menjadi Azure Cloud Developer" Class.
+## dicodingAzureDev - Submission 2
+Azure Storage &amp; Cognitive Service on "Menjadi Azure Cloud Developer" Class.
