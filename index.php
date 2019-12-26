@@ -1,46 +1,114 @@
 <?php
-$host = "tcp:codingclass.database.windows.net,1433";
-$user = "sudo"; //sudo
-$passwd = "Garuda11#"; //Garuda11#
-$dbname = "dbCodingClass";
+require_once "vendor/autoload.php";
 
-try {
-    $db = new PDO("sqlsrv:server = $host; Database = $dbname", "$user", "$passwd");
-    // set the PDO error mode to exception
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-}
-catch(PDOException $e){
-    echo "Connection failed: " . $e->getMessage();
-}
+use MicrosoftAzure\Storage\Blob\BlobRestProxy;
+use MicrosoftAzure\Storage\Common\Exceptions\ServiceException;
+use MicrosoftAzure\Storage\Blob\Models\ListBlobsOptions;
+use MicrosoftAzure\Storage\Blob\Models\CreateContainerOptions;
+use MicrosoftAzure\Storage\Blob\Models\PublicAccessType;
+
+$storage_name = "visionpro";
+$storage_key = "WG8N/lHjK7z5ykga6IAsKR7MCRRJbb6shgwmXotp5A8TrxGdonSapwCeIeItAXieCcNAAJwxdA8y5NxmqiOu3Q==";
+
+$connection = "DefaultEndpointsProtocol=https;AccountName=$storage_name;AccountKey=$storage_key";
+$container = "images";
+$blobClient = BlobRestProxy::createBlobService($connection);
+
+$display = "none";
+
+  if (isset($_POST['upload'])) {
+    $img = $_FILES['img'];
+    if (strpos($img['type'], 'image') !== false) {
+      if ($img['size'] <= 5242880) {
+        $content = fopen($img['tmp_name'], "r");
+        $filename = time()."-".str_replace(' ', '_', $img['name']);
+
+        try {
+            # Upload file as a block blob
+            $content = fopen($img['tmp_name'], "r");
+            $blobClient->createBlockBlob($container, $filename, $content);
+
+            // List blobs.
+            $listBlobsOptions = new ListBlobsOptions();
+            $listBlobsOptions->setPrefix($filename);
+
+            do{
+                $result = $blobClient->listBlobs($container, $listBlobsOptions);
+                foreach ($result->getBlobs() as $blob)
+                {
+                    global $img_name, $img_url;
+                    $img_name = $blob->getName();
+                    $img_url = $blob->getUrl();
+                    $alert = '<p class="alert alert-success"><b>Success:</b> '.$img_name.' uploaded.';
+                    $display = "flex";
+                }
+
+                $listBlobsOptions->setContinuationToken($result->getContinuationToken());
+            } while($result->getContinuationToken());
+            echo "<br />";
+
+        }
+        catch(ServiceException $e){
+            $code = $e->getCode();
+            $error_message = $e->getMessage();
+            echo $code.": ".$error_message."<br />";
+        }
+      }else{
+        $alert = '<span class="alert alert-danger"><b>Error:</b> Maximum file is 5MB.</span>';
+      }
+    }else{
+      $alert = '<span class="alert alert-danger"><b>Error:</b> Please select image file only.</span>';
+    }
+
+
+
+    $sub_key = "Ocp-Apim-Subscription-Key: e46d816edcae425cb7c537b1eaedb31d";
+    $api = "https://codingvision.cognitiveservices.azure.com/vision/v2.0/analyze";
+    $_params = [
+        "visualFeatures" => "Categories,Description,Color",
+        "details" => "",
+        "language" => "en",
+    ];
+    $get_params = [];
+    foreach ($_params as $name => $value)
+    {
+      $get_params[] = $name.'='.urlencode($value);
+    }
+    $uri = $api."?".join('&', $get_params);
+    //$img_url = "https://visionpro.blob.core.windows.net/images/1577372255-love-photos-wallpaper-5.jpg";
+    $post_params = json_encode(["url" => $img_url]);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $uri);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+      "Content-Type: application/json",
+      $sub_key
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $post_params);
+    $result = curl_exec($ch);
+    $json = json_decode($result);
+    curl_close($ch);
+
+    $tags = "";
+    foreach ($json->description->tags as $val) {
+      $tags .= "#".$val." ";
+    }
+    $caption = $json->description->captions[0]->text;
+    preg_match('/(.*)\/(.*)/', $img_url, $string);
+    $name = $string[2]." (".$json->metadata->width."x".$json->metadata->height.")";
+  }
 ?>
-
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="./favicon.ico" type="image/x-icon"/>
-    <link rel="shortcut icon" href="./favicon.ico" type="image/x-icon"/>
-    <title>Coding Class</title>
-    <style media="screen">
-      .form{
-        width: 100px!important;
-        margin-right: 10px;
-        float:left;
-      }
-
-      table{
-        border-collapse: collapse;
-      }
-
-      td, th{
-        border: 1px solid #222;
-        padding: 5px 10px;
-      }
-      .clear{
-        clear: both;
-      }
-    </style>
+    <title>visionPro</title>
+    <link rel="stylesheet" href="./css/bootstrap.min.css">
+    <script src="./js/jquery.js"></script>
+    <script src="./js/bootstrap.min.js"></script>
     <script>
     if ( window.history.replaceState ) {
         window.history.replaceState( null, null, window.location.href );
@@ -48,93 +116,64 @@ catch(PDOException $e){
     </script>
   </head>
   <body>
-    <h1>Welcome to CodingClass</h1>
+    <div class="container">
+      <h1 style="display:inline;margin-right:20px"><b>visionPro</b></h1>
+      <h4 style="display:inline">Analyze image with Azure Compute Vision</h4>
+      <br><br>
+      <form action="" method="post" enctype="multipart/form-data">
+        <div class="form-inline">
+          <label for="file" class="mb-2 mr-sm-2">Select Images: </label>
+          <input type="file" class="form-control mb-2 mr-sm-2" name="img" id="image" required>
+          <button type="submit" class="btn btn-primary mb-2" name="upload">Upload</button>
+        </div>
+      </form>
+      <br>
+      <div id="alert"><?=@$alert;?></div>
+      <!-- end form -->
 
-    <h2>Form Register</h2>
-    <form action="" method="post">
-      <div class="form">Full Name :</div>
-      <input type="text" name="name" value="" required>
-        <div class="clear"></div>
-        <br>
-      <div class="form">Email :</div>
-      <input type="email" name="email" value="" required>
-        <div class="clear"></div>
-        <br>
-      <div class="form">Class :</div>
-      <select name="class" required>
-        <option selected disabled>-- Select Class --</option>
-        <option value="Javascript">Java</option>
-        <option value="Laravel">Laravel</option>
-        <option value="NodeJS">NodeJS</option>
-        <option value="Python">Python</option>
-      </select>
-        <div class="clear"></div>
-        <br>
-      <input type="submit" name="register" value="REGISTER">
-    </form>
-    <br>
+      <br>
 
-    <?php
-    if (isset($_POST['register'])) {
-      $name = trim($_POST['name']);
-      $email = trim($_POST['email']);
-      $class = trim($_POST['class']);
-      try {
-          $sql = "INSERT INTO dbo.tb_users (fullname, email, class)
-          VALUES ('$name', '$email', '$class')";
-          $db->exec($sql);
-            echo '<font color="green">Registration successfully!</font>';
-      }
-      catch(PDOException $e){
-            echo '<font color="red">Registration failed!</font><br>'.$sql . '<br>' . $e->getMessage();
-      }
-    }
-    ?>
+      <div class="row" id="analyze" style="display:<?=@$display;?>;">
+        <div class="col-md-4 col-sm-12">
+          <img src="<?=@$img_url;?>" style="width:100%">
+          <br>
+          <span style="color:gray;opacity:0.6;font-size:14px">Download: <a href="<?=@$img_url;?>" style="color:gray;"><?=@$name;?></a></span>
+        </div>
 
-    <br><br><hr>
+        <div class="col-md-8 col-sm-12">
+          <ul class="nav nav-pills" role="tablist">
+            <li class="nav-item">
+              <a class="nav-link active" data-toggle="pill" href="#summary">Summary</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" data-toggle="pill" href="#details">Details</a>
+            </li>
+          </ul>
 
-    <h2>Registered Users</h2>
+          <?php
+          ?>
 
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Name</th>
-          <th>Email</th>
-          <th>Class</th>
-        </tr>
-      </thead>
-      <tbody>
-      <?php
+          <!-- Tab panes -->
+          <div class="tab-content">
+            <div id="summary" class="container tab-pane active"><br>
+              <b><?=@$caption;?></b>
+              <br>
+              <span style="color:blue;opacity:0.8"><?=@$tags;?></span>
+            </div>
+            <div id="details" class="container tab-pane fade"><br>
+              <div class="form-group">
+                <label for="comment">JSON Details:</label>
+                <textarea class="form-control" rows="10" id="json" readonly><?=@$result;?></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      try {
-        $sql_get = $db->prepare("SELECT * FROM dbo.tb_users");
-        $sql_get->execute();
-        $result = $sql_get->fetchAll();
 
-        if (count($result) > 0) {
-            $x = 1;
-            foreach($result as $row) {
-              echo "
-                <tr>
-                <td>".$x."</td>
-                <td>".$row["fullname"]."</td>
-                <td>".$row["email"]."</td>
-                <td>".$row["class"]."</td>
-                </tr>";
-                $x++;
-            }
-        } else {
-            echo "0 results";
-        }
-      }
-      catch(PDOException $e) {
-          echo "Error: " . $e->getMessage();
-      }
 
-      ?>
-      </tbody>
-    </table>
 
+
+    </div>
   </body>
 </html>
